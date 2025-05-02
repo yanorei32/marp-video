@@ -1,5 +1,4 @@
 /target
 test.sh
-*.md
 .marp-video
 *.mp4
