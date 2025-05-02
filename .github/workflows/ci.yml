@@ -1,0 +1,160 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - 'master'
+    tags:
+      - v*
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_CACHE_VERSION: v1
+  PROJ_NAME: marp-video
+
+jobs:
+  release_linux:
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ghimage: ubuntu-24.04
+            os: linux
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            output: marp-video
+
+          - ghimage: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            output: marp-video
+
+          - ghimage: ubuntu-24.04
+            os: windows
+            arch: x86_64
+            target: x86_64-pc-windows-gnu
+            output: marp-video.exe
+
+    permissions:
+      contents: write
+
+    runs-on: ${{ matrix.ghimage }}
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: true
+
+      - if: ${{ matrix.target == 'x86_64-pc-windows-gnu' }}
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc-mingw-w64-x86-64
+          rustup target add x86_64-pc-windows-gnu
+
+      - name: Install cargo license
+        run: |
+          cargo install cargo-license
+
+      - uses: Swatinem/rust-cache@v2.7.8
+        with:
+          prefix-key: ${{ env.RUST_CACHE_VERSION }}-rust
+
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo build --release --target $TARGET
+
+      - name: Create CREDITS file
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo license \
+            --authors \
+            --do-not-bundle \
+            --avoid-dev-deps \
+            --filter-platform $TARGET \
+              > CREDITS
+
+      - name: Make release file
+        env:
+          TARGET: ${{ matrix.target }}
+          OUTPUT: ${{ matrix.output }}
+        run: |
+          DIR_NAME="${{ env.PROJ_NAME }}-${{ matrix.os }}-${{ matrix.arch }}-${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('master-{0}', github.sha) }}"
+          mkdir "$DIR_NAME"
+          cp ./target/$TARGET/release/$OUTPUT "$DIR_NAME/"
+          cp ./LICENSE "$DIR_NAME/"
+          cp ./CREDITS "$DIR_NAME/"
+          cp ./README.md "$DIR_NAME/"
+          tar cvf "$DIR_NAME.tar.gz" "$DIR_NAME/"
+
+      - name: pre-release
+        uses: softprops/action-gh-release@v2.2.2
+        if: "! startsWith(github.ref, 'refs/tags/')"
+        with:
+          tag_name: master-${{ github.sha }}
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            *.tar.gz
+
+      - name: tagged-release
+        uses: softprops/action-gh-release@v2.2.2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            *.tar.gz
+
+
+  clippy_and_test:
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ghimage: ubuntu-24.04
+            mcarch: amd64
+
+    permissions:
+      packages: write
+      checks: write
+      contents: read
+      deployments: write
+
+    runs-on: ${{ matrix.ghimage }}
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Get Rust toolchain
+        id: toolchain
+        run: |
+          awk -F'[ ="]+' '$1 == "channel" { print "toolchain=" $2 }' rust-toolchain >> "$GITHUB_OUTPUT"
+
+      - name: install clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.toolchain.outputs.toolchain }}
+          components: clippy
+
+      - name: cache dependencies
+        uses: Swatinem/rust-cache@v2.7.8
+        with:
+          prefix-key: ${{ env.RUST_CACHE_VERSION }}-rust
+
+      - name: clippy check
+        uses: yanorei32/action-clippy@50412b135153ebee7d4b8a5b868c4defdc663683
+        with:
+          reporter: github-check
+
+      - name: unit test
+        run: |
+          cargo test --no-run --locked
+          cargo test
+
+      - name: release build
+        run: cargo build --release
