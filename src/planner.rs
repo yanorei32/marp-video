@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use itertools::Itertools;
 
 use crate::asset_preparator::Sound;
@@ -9,6 +11,20 @@ pub struct DocumentChannels {
     pub videos: Vec<String>,
     pub fg_sounds: Vec<String>,
     pub bg_sounds: Vec<String>,
+}
+
+fn ffmpeg_escape(path: &Path) -> String {
+    // Don't ask me why; it works
+    path.to_str()
+        .unwrap()
+        .replace("\\", "\\\\\\\\")
+        .replace(":", "\\\\:")
+        .replace("'", "\\\\\\'")
+        .replace("=", "\\=")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
 }
 
 pub fn plan(env: &Environment, events: &[Event<Sound, Sound>]) -> anyhow::Result<DocumentChannels> {
@@ -31,10 +47,7 @@ fn plan_fg_audio_stream(env: &Environment, events: &[Event<Sound, Sound>]) -> Ve
             Event::Voice(sound) | Event::SoundEffect(sound) => {
                 foreground_sound_stream.push(format!(
                     "amovie={},volume={}",
-                    env.md_dir()
-                        .join(&sound.path)
-                        .into_os_string()
-                        .to_string_lossy(),
+                    ffmpeg_escape(&env.md_dir().join(&sound.path)),
                     sound.volume / 100.0,
                 ));
             }
@@ -89,24 +102,19 @@ fn plan_bg_audio_stream(env: &Environment, events: &[Event<Sound, Sound>]) -> Ve
 
     for (bref, bdur) in bgm_refs.iter().zip(bgm_durations.iter()) {
         match bref {
-            Event::MVBGMMarker { path, volume } => {
-                match path {
-                    Some(path) => {
-                        background_sound_stream.push(format!(
-                            "amovie={},volume={},aloop=-1:2147483647,atrim=duration={bdur}",
-                            env.md_dir()
-                                .join(&path.to_str().unwrap())
-                                .into_os_string()
-                                .to_string_lossy(),
-                            *volume / 100.0,
-                        ));
-                    }
-                    None => {
-                        background_sound_stream.push(format!(
-                            "anullsrc,volume={},atrim=duration={bdur}",
-                            *volume / 100.0,
-                        ));
-                    }
+            Event::MVBGMMarker { path, volume } => match path {
+                Some(path) => {
+                    background_sound_stream.push(format!(
+                        "amovie={},volume={},aloop=-1:2147483647,atrim=duration={bdur}",
+                        ffmpeg_escape(&env.md_dir().join(&path.to_str().unwrap())),
+                        *volume / 100.0,
+                    ));
+                }
+                None => {
+                    background_sound_stream.push(format!(
+                        "anullsrc,volume={},atrim=duration={bdur}",
+                        *volume / 100.0,
+                    ));
                 }
             },
             _ => {}
@@ -145,6 +153,12 @@ fn plan_video_stream(env: &Environment, events: &[Event<Sound, Sound>]) -> Vec<S
     println!("{page_durations:#?}");
 
     for (pref, pdur) in page_refs.iter().zip(page_durations.iter()) {
+        // Drop slides less than one frame
+        if *pdur < 60.0 * 2.0 / 1000.0 {
+            println!("WARN: Skip frame");
+            continue;
+        }
+
         match pref {
             Event::MPageMarker { marp_page_nth } => {
                 video_stream.push(format!(
@@ -156,7 +170,7 @@ fn plan_video_stream(env: &Environment, events: &[Event<Sound, Sound>]) -> Vec<S
             Event::IPageMarker { path } => {
                 video_stream.push(format!(
                     "movie={},scale={}:{},setsar=1:1,loop=-1:1,trim=duration={pdur}",
-                    path.to_str().unwrap(),
+                    ffmpeg_escape(&env.md_dir().join(&path.to_str().unwrap())),
                     env.video_width(),
                     env.video_height(),
                 ));

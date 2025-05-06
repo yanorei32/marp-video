@@ -60,8 +60,6 @@ fn to_filter_complex(doc: &DocumentChannels) -> String {
 pub async fn encode(env: &Environment, doc: &DocumentChannels) -> anyhow::Result<()> {
     let filter_complex = to_filter_complex(doc);
 
-    println!("{filter_complex}");
-
     let mut a = vec![
         "-nostdin",
         "-hide_banner",
