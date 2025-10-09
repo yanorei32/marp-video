@@ -587,9 +587,9 @@ dependencies = [
 
 [[package]]
 name = "serde-env-field"
-version = "0.3.2"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7474686d028d4a3d580ac88d7cbd54a7c5ca4f8ecb437caa8e67bb074e2fae42"
+checksum = "9f87baa28e6bff2d10d55e6198b0066c7f032f3fafd9f5debe7e623c98af4458"
 dependencies = [
  "serde",
  "serde-env-field-wrap",
