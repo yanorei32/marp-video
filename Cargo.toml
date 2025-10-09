@@ -13,7 +13,7 @@ itertools = "0.14.0"
 markdown = "1.0.0-alpha.21"
 md5 = "0.8.0"
 serde = { version = "1.0.215", features = ["derive"] }
-serde-env-field = "0.3.2"
+serde-env-field = "0.4.0"
 serde_toml = "0.0.1"
 serde_yaml = "0.9.34+deprecated"
 thiserror = "2.0.6"
